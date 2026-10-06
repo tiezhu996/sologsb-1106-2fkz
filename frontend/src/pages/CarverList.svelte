@@ -82,9 +82,13 @@
   }
 
   async function exportCarvers(): Promise<void> {
-    const [blocks, nodes] = await Promise.all([db.blocks.toArray(), db.nodes.toArray()])
+    const [blocks, nodes] = await Promise.all([
+      db.blocks.toArray(),
+      db.nodes.where('status').equals('有效').toArray(),
+    ])
     downloadJson('刻工与版片分布.json', {
       exportedAt: new Date().toISOString(),
+      note: '仅导出有效工序节点，作废节点作为返工经过保留在本地时间线中。',
       carvers: $carverStore,
       blocks,
       nodes,

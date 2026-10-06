@@ -90,6 +90,7 @@
       startedAt: new Date().toISOString().slice(0, 16),
       durationMin: 0,
       note: '版片验线后标记刻成。',
+      status: '有效',
     })
     lastSync = `${block.blockName}已标记刻成`
   }

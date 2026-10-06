@@ -41,6 +41,33 @@ class WoodprintDatabase extends Dexie {
           })
         }
       })
+
+    this.version(3)
+      .stores({
+        drafts: 'id, genre, status, title, schemaRev',
+        blocks: 'id, draftId, colorNo, carvedBy, state, schemaRev',
+        carvers: 'id, specialty, skillLevel, name, schemaRev',
+        batches: 'id, draftId, batchNo, printedAt, schemaRev',
+        nodes: 'id, batchId, blockId, stage, seq, operator, status, schemaRev',
+      })
+      .upgrade(async (transaction) => {
+        await transaction.table('drafts').toCollection().modify((record: StoredRecord) => {
+          record.schemaRev = 3
+        })
+        await transaction.table('blocks').toCollection().modify((record: StoredRecord) => {
+          record.schemaRev = 3
+        })
+        await transaction.table('carvers').toCollection().modify((record: StoredRecord) => {
+          record.schemaRev = 3
+        })
+        await transaction.table('batches').toCollection().modify((record: StoredRecord) => {
+          record.schemaRev = 3
+        })
+        await transaction.table('nodes').toCollection().modify((record: StoredRecord) => {
+          record.schemaRev = 3
+          if (record.status === undefined) record.status = '有效'
+        })
+      })
   }
 }
 
@@ -176,7 +203,7 @@ const batches: PrintBatch[] = [
   },
 ]
 
-const nodes: ProcessNode[] = [
+const nodes: Array<Omit<ProcessNode, 'status'>> = [
   { id: 'node-ms-01', blockId: 'block-ms-01', stage: '起稿', seq: 1, operator: '赵守艺', startedAt: '2026-01-02T08:30', durationMin: 180, note: '确定秦琼、敬德左右对称构图。' },
   { id: 'node-ms-02', blockId: 'block-ms-01', stage: '勾描', seq: 2, operator: '赵守艺', startedAt: '2026-01-03T09:00', durationMin: 240, note: '墨线稿过朱，甲片分界加密。' },
   { id: 'node-ms-03', blockId: 'block-ms-01', stage: '上样', seq: 3, operator: '齐师傅', startedAt: '2026-01-04T08:30', durationMin: 95, note: '画稿反贴黄杨板，糨层均匀。' },
@@ -194,7 +221,11 @@ const nodes: ProcessNode[] = [
 ]
 
 function withSchemaRevision<T extends object>(records: T[]): Array<T & { schemaRev: number }> {
-  return records.map((record) => ({ ...record, schemaRev: 2 }))
+  return records.map((record) => ({ ...record, schemaRev: 3 }))
+}
+
+function seedNodes(records: Array<Omit<ProcessNode, 'status'>>): ProcessNode[] {
+  return records.map((node) => ({ ...node, status: '有效' }))
 }
 
 export const db = new WoodprintDatabase()
@@ -205,7 +236,7 @@ db.on('populate', () => {
     db.blocks.bulkAdd(withSchemaRevision(blocks)),
     db.carvers.bulkAdd(withSchemaRevision(carvers)),
     db.batches.bulkAdd(withSchemaRevision(batches)),
-    db.nodes.bulkAdd(withSchemaRevision(nodes)),
+    db.nodes.bulkAdd(withSchemaRevision(seedNodes(nodes))),
   ])
 })
 
@@ -219,7 +250,7 @@ export async function initializeDatabase(): Promise<void> {
     await db.blocks.bulkPut(withSchemaRevision(blocks))
     await db.carvers.bulkPut(withSchemaRevision(carvers))
     await db.batches.bulkPut(withSchemaRevision(batches))
-    await db.nodes.bulkPut(withSchemaRevision(nodes))
+    await db.nodes.bulkPut(withSchemaRevision(seedNodes(nodes)))
   })
 }
 

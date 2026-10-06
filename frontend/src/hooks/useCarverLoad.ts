@@ -29,7 +29,11 @@ export function useCarverLoad(carverId: string) {
       return
     }
 
-    const nodes = await db.nodes.where('operator').equals(current.name).toArray()
+    const nodes = await db.nodes
+      .where('operator')
+      .equals(current.name)
+      .filter((node) => node.status !== '已作废')
+      .toArray()
     const total = nodes.reduce((sum, node) => sum + node.durationMin, 0)
     const average = nodes.length === 0 ? 0 : Math.round(total / nodes.length)
     if (currentRequest === requestNumber) averageDuration.set(average)

@@ -98,9 +98,17 @@
       db.drafts.toArray(),
       db.blocks.toArray(),
       db.carvers.toArray(),
-      db.nodes.toArray(),
+      db.nodes.where('status').equals('有效').toArray(),
     ])
-    downloadJson('木版年画工序档案.json', { exportedAt: new Date().toISOString(), drafts, blocks, batches, carvers, nodes })
+    downloadJson('木版年画工序档案.json', {
+      exportedAt: new Date().toISOString(),
+      note: '仅导出有效工序节点，作废节点作为返工经过保留在本地时间线中。',
+      drafts,
+      blocks,
+      batches,
+      carvers,
+      nodes,
+    })
   }
 </script>
 
