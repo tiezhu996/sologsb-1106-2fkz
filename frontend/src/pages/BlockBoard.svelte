@@ -14,7 +14,7 @@
   import { validateColorSequence } from '../utils/seq'
   import { db } from '../utils/db'
   import type { Block } from '../types/block'
-  import type { ProcessStage } from '../types/node'
+  import { isActiveNode, type ProcessStage } from '../types/node'
 
   const draftId = $derived($params?.id ?? '')
   const {
@@ -81,15 +81,17 @@
     await draftStore.update(draftId, { status: allCarved ? '可印' : '刻版中' })
 
     const existing = await db.nodes.where('blockId').equals(block.id).toArray()
+    const activeSeqs = existing.filter(isActiveNode).map((node) => node.seq)
     await db.nodes.add({
       id: `node-${crypto.randomUUID()}`,
       blockId: block.id,
       stage: '刻版',
-      seq: Math.max(0, ...existing.map((node) => node.seq)) + 1,
+      seq: Math.max(0, ...activeSeqs) + 1,
       operator: block.carvedBy || '当班刻工',
       startedAt: new Date().toISOString().slice(0, 16),
       durationMin: 0,
       note: '版片验线后标记刻成。',
+      status: '有效',
     })
     lastSync = `${block.blockName}已标记刻成`
   }

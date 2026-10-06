@@ -5,7 +5,7 @@
   import StageRail from '../components/common/StageRail.svelte'
   import { blockStore } from '../stores/blockStore'
   import { db } from '../utils/db'
-  import type { ProcessNode, ProcessStage } from '../types/node'
+  import { isActiveNode, type ProcessNode, type ProcessStage } from '../types/node'
 
   const stages: ProcessStage[] = ['起稿', '勾描', '上样', '刻版', '修版', '调色', '套印', '晾晒']
   const blockId = $derived($params?.id ?? '')
@@ -15,10 +15,14 @@
   let operator = $state('')
   let durationMin = $state(60)
   let note = $state('')
+  let retreatReason = $state('')
   let feedback = $state('')
 
+  const validNodes = $derived(nodes.filter(isActiveNode))
+  const voidedCount = $derived(nodes.length - validNodes.length)
+
   function latestNode(): ProcessNode | null {
-    const sorted = [...nodes].sort((a, b) => a.seq - b.seq)
+    const sorted = [...validNodes].sort((a, b) => a.seq - b.seq)
     return sorted[sorted.length - 1] ?? null
   }
 
@@ -27,7 +31,7 @@
     return latest ? Math.max(0, latest.seq - 1) : 0
   })
 
-  const nextStage = $derived(stages.find((stage) => !nodes.some((node) => node.stage === stage)) ?? null)
+  const nextStage = $derived(stages.find((stage) => !validNodes.some((node) => node.stage === stage)) ?? null)
 
   onMount(() => {
     void Promise.all([blockStore.load(), loadNodes()])
@@ -39,9 +43,10 @@
 
   async function loadNodes(): Promise<void> {
     const records = await db.nodes.where('blockId').equals(blockId).toArray()
-    records.sort((a, b) => a.seq - b.seq)
+    records.sort((a, b) => a.seq - b.seq || a.startedAt.localeCompare(b.startedAt))
     nodes = records
-    const last = records[records.length - 1]
+    const active = records.filter(isActiveNode)
+    const last = active[active.length - 1]
     if (last) durationMin = last.durationMin
   }
 
@@ -52,7 +57,7 @@
       return
     }
 
-    const overflow = stages.indexOf(nextStage) + 1 < nodes.length
+    const overflow = stages.indexOf(nextStage) + 1 < validNodes.length
     if (overflow) {
       feedback = '节点顺序与阶段轨道不一致，请先回退重排。'
       return
@@ -62,15 +67,46 @@
       id: `node-${crypto.randomUUID()}`,
       blockId: block.id,
       stage: nextStage,
-      seq: nodes.length + 1,
+      seq: validNodes.length + 1,
       operator: operator.trim(),
       startedAt: new Date().toISOString().slice(0, 16),
       durationMin: Math.max(0, Number(durationMin)),
       note: note.trim() || `${nextStage}工序登记`,
+      status: '有效',
     })
     note = ''
     feedback = `已推进到${nextStage}`
     await loadNodes()
+  }
+
+  function retreatContext(): { operatorName: string; reason: string } | null {
+    const operatorName = operator.trim()
+    const reason = retreatReason.trim()
+    if (!operatorName || !reason) {
+      feedback = '回退前请填写操作人与退回原因，二者会随作废节点一起存档。'
+      return null
+    }
+    return { operatorName, reason }
+  }
+
+  async function voidNodes(targets: ProcessNode[], reason: string, operatorName: string): Promise<void> {
+    const voidedAt = new Date().toISOString().slice(0, 16)
+    await db.transaction('rw', db.nodes, async () => {
+      for (const target of targets) {
+        await db.nodes.update(target.id, {
+          status: '作废',
+          voidReason: reason,
+          voidedBy: operatorName,
+          voidedAt,
+        })
+      }
+    })
+  }
+
+  async function syncBlockAfterRetreat(): Promise<void> {
+    if (block && block.state === '已刻成') {
+      await blockStore.update(block.id, { state: '在刻' })
+    }
   }
 
   async function retreatNode(): Promise<void> {
@@ -79,8 +115,13 @@
       feedback = '当前没有可回退的节点。'
       return
     }
-    await db.nodes.delete(latest.id)
-    feedback = `已回退${latest.stage}节点`
+    const context = retreatContext()
+    if (!context) return
+
+    await voidNodes([latest], context.reason, context.operatorName)
+    await syncBlockAfterRetreat()
+    retreatReason = ''
+    feedback = `已回退${latest.stage}节点，原记录标作废留痕`
     await loadNodes()
   }
 
@@ -96,12 +137,16 @@
   }
 
   async function returnToStage(index: number, stage: ProcessStage): Promise<void> {
-    const deleteIds = nodes.filter((node) => node.seq > index + 1).map((node) => node.id)
-    if (deleteIds.length > 0) {
-      await db.nodes.bulkDelete(deleteIds)
-      feedback = `节点已回退到${stage}`
-      await loadNodes()
-    }
+    const targets = validNodes.filter((node) => node.seq > index + 1)
+    if (targets.length === 0) return
+    const context = retreatContext()
+    if (!context) return
+
+    await voidNodes(targets, context.reason, context.operatorName)
+    await syncBlockAfterRetreat()
+    retreatReason = ''
+    feedback = `节点已回退到${stage}，后续 ${targets.length} 个节点标作废留痕`
+    await loadNodes()
   }
 
   function formatTime(value: string): string {
@@ -137,7 +182,7 @@
       </div>
       <span class="tag state-{block.state}">{block.state}</span>
     </div>
-    <StageRail activeIndex={activeIndex} completedCount={nodes.length} onselect={returnToStage} />
+    <StageRail activeIndex={activeIndex} completedCount={validNodes.length} onselect={returnToStage} />
   </section>
 
   <div class="timeline-grid">
@@ -169,9 +214,14 @@
         <p class="gentle-copy">当前版片已登记全部阶段，可回退节点后重新记录。</p>
       {/if}
 
+      <label class="stacked-field">
+        <span>退回原因（回退节点时必填，随作废记录存档）</span>
+        <input data-testid="field-node-retreat-reason" bind:value={retreatReason} placeholder="如：刻错衣纹走向，需返工重刻" />
+      </label>
+
       <div class="inline-actions">
         <button class="button secondary" type="button" onclick={updateDuration}>更新末节点耗时</button>
-        <button class="button danger" type="button" onclick={retreatNode}>回退一个节点</button>
+        <button class="button danger" data-testid="retreat-node" type="button" onclick={retreatNode}>回退一个节点</button>
       </div>
       {#if feedback}<p class="notice">{feedback}</p>{/if}
     </section>
@@ -182,20 +232,29 @@
           <span class="section-kicker">已存节点</span>
           <h2>工序往来</h2>
         </div>
-        <strong>{nodes.length} 条</strong>
+        <strong>有效 {validNodes.length} 条 · 作废 {voidedCount} 条</strong>
       </div>
 
       {#if nodes.length === 0}
         <EmptyBox title="尚未登记节点" message="从上方的下一阶段开始记录操作人、耗时与工序要点。" />
       {:else}
         <ol class="timeline-list">
-          {#each [...nodes].sort((a, b) => b.seq - a.seq) as node}
-            <li>
+          {#each [...nodes].sort((a, b) => b.seq - a.seq || b.startedAt.localeCompare(a.startedAt)) as node (node.id)}
+            <li class:voided={node.status === '作废'}>
               <span class="timeline-dot"></span>
               <div>
-                <div class="timeline-title"><strong>{node.stage}</strong><span>第 {node.seq} 节点</span></div>
+                <div class="timeline-title">
+                  <span class="timeline-stage">
+                    <strong>{node.stage}</strong>
+                    {#if node.status === '作废'}<em class="void-tag">作废</em>{/if}
+                  </span>
+                  <span>第 {node.seq} 节点</span>
+                </div>
                 <p>{node.note}</p>
                 <small>{node.operator} · {formatTime(node.startedAt)} · {node.durationMin} 分钟</small>
+                {#if node.status === '作废'}
+                  <small class="void-meta">作废原因：{node.voidReason} · {node.voidedBy} · {formatTime(node.voidedAt ?? '')}</small>
+                {/if}
               </div>
             </li>
           {/each}

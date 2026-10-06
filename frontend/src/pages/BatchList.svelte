@@ -7,6 +7,7 @@
   import { downloadJson } from '../utils/export'
   import { db } from '../utils/db'
   import type { PrintBatch } from '../types/batch'
+  import { isActiveNode } from '../types/node'
 
   let batches = $state<PrintBatch[]>([])
   let showForm = $state(false)
@@ -94,12 +95,13 @@
   }
 
   async function exportArchive(): Promise<void> {
-    const [drafts, blocks, carvers, nodes] = await Promise.all([
+    const [drafts, blocks, carvers, nodeRecords] = await Promise.all([
       db.drafts.toArray(),
       db.blocks.toArray(),
       db.carvers.toArray(),
       db.nodes.toArray(),
     ])
+    const nodes = nodeRecords.filter(isActiveNode)
     downloadJson('木版年画工序档案.json', { exportedAt: new Date().toISOString(), drafts, blocks, batches, carvers, nodes })
   }
 </script>

@@ -786,6 +786,38 @@ textarea:focus {
   color: var(--ink-muted);
 }
 
+.timeline-list li.voided .timeline-dot {
+  background: var(--line-strong);
+  box-shadow: 0 0 0 2px rgba(136, 117, 99, 0.28);
+}
+
+.timeline-list li.voided > div {
+  opacity: 0.75;
+}
+
+.timeline-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.void-tag {
+  border: 1px solid #e1b1ab;
+  border-radius: 999px;
+  padding: 0.08rem 0.45rem;
+  color: var(--cinnabar);
+  background: #fff5f2;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.void-meta {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--cinnabar-dark);
+}
+
 .gentle-copy {
   color: var(--ink-muted);
   line-height: 1.7;

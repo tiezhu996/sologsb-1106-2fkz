@@ -6,6 +6,7 @@
   import { carverStore } from '../stores/carverStore'
   import { useCarverLoad } from '../hooks/useCarverLoad'
   import type { CarverSpecialty, SkillLevel } from '../types/carver'
+  import { isActiveNode } from '../types/node'
   import { downloadJson } from '../utils/export'
   import { db } from '../utils/db'
 
@@ -82,12 +83,12 @@
   }
 
   async function exportCarvers(): Promise<void> {
-    const [blocks, nodes] = await Promise.all([db.blocks.toArray(), db.nodes.toArray()])
+    const [blocks, nodeRecords] = await Promise.all([db.blocks.toArray(), db.nodes.toArray()])
     downloadJson('刻工与版片分布.json', {
       exportedAt: new Date().toISOString(),
       carvers: $carverStore,
       blocks,
-      nodes,
+      nodes: nodeRecords.filter(isActiveNode),
     })
   }
 </script>
